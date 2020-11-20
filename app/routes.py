@@ -433,15 +433,19 @@ def check_ready(room_users, room_owner):
                                           disable_notification=True)
                 request_ready(chat_id=u.id)
 
-        # в комнате только создатель
-        if ready_users_count == 1:
-            telegram_bot.send_message(chat_id=room_owner.id,
-                                      text=room_owner_alone_message.format(room_owner.participant.identifier),
-                                      parse_mode='Markdown',
-                                      disable_notification=True)
         return ready_users_count
     except Exception:
         return ready_users_count
+
+
+def get_room_users_count(room_owner):
+    count = User.query.filter_by(room=room_owner.participant.id).count()
+    if count == 1:
+        telegram_bot.send_message(chat_id=room_owner.id,
+                                  text=room_owner_alone_message.format(room_owner.participant.identifier),
+                                  parse_mode='Markdown',
+                                  disable_notification=True)
+    return count
 
 
 # создать полную текстовую строку пользователя
@@ -470,7 +474,7 @@ def assign_santa(user, santa):
 def handle_room_owner_start(query):
     room_owner = User.query.get(query.message.chat.id)  # создатель комнаты
     room_users = room_owner.participant.users  # AppenderBaseQuery все участники комнаты
-    room_users_count = User.query.filter_by(room=room_owner.participant.id).count()  # всего участников комнаты
+    room_users_count = get_room_users_count(room_owner)  # всего участников комнаты
     room_users_ready_count = check_ready(room_users, room_owner)  # кол-во готовых пользователей
 
     # если в комнате только создатель или не все пользователи готовы
