@@ -194,6 +194,7 @@ def join_room(message):
     if room is not None and user.state == BotSate.ROOM_CHOICE:
         user.participant = room
         user.state = BotSate.IN_ROOM_USER
+        db.session.commit()
         for u in room.users:
             if u.id != user.id:
                 telegram_bot.send_message(chat_id=u.id,
@@ -208,7 +209,6 @@ def join_room(message):
                                                                         owner_name),
                                           disable_notification=True)
                 request_ready(user.id)
-        db.session.commit()
     else:
         check_state(message)
 
@@ -223,6 +223,7 @@ def exit_room(message):
         user.participant = None
         user.state = BotSate.ROOM_CHOICE
         db.session.query(User).filter_by(id=user.id).update({"ready": False})
+        db.session.commit()
 
         telegram_bot.send_message(chat_id=user.id,
                                   text=room_exit_message.format(user.first_name, room.identifier),
@@ -233,7 +234,6 @@ def exit_room(message):
                 telegram_bot.send_message(chat_id=u.id, text=room_exit_alert_message.format(user.first_name,
                                                                                             room.identifier),
                                           disable_notification=True)
-        db.session.commit()
         request_room_invitation(user.id)
     else:
         check_state(message)
