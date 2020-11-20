@@ -38,6 +38,7 @@ def webhook():
 
 
 def request_phone_number(chat_id):
+    # указываем параметр resize_keyboard для того, чтобы кнопки были маленького размера
     markup = types.ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
     markup.add(types.KeyboardButton(text=phone_button_text, request_contact=True))
     markup.add(types.KeyboardButton(text=phone_button_text_denied))
