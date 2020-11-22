@@ -15,7 +15,7 @@ from app.bot_messages import start_message, request_phone_message, request_addre
     ready_message, user_ready_alert_message, user_ready_message, user_doesnt_ready_owner_message, \
     user_doesnt_ready_participant_message, room_owner_alone_message, room_everyone_ready_message, secret_santa_message,\
     secret_santa_message_clean, help_message, phone_button_text_denied, not_phone_number_info, inform_alone_message, \
-    skip_phone_button_text
+    skip_phone_button_text, proper_usage_of_notify_text
 
 
 # место для вебхука
@@ -165,7 +165,7 @@ def drop_room(message, end=False):
     else:
         room = None
 
-    if room is not None and user.state == BotSate.IN_ROOM_CREATOR and user.id == room.owner_id:
+    if room and user.state == BotSate.IN_ROOM_CREATOR and user.id == room.owner_id:
         for u in room.users:
             u.participant = None
             u.state = BotSate.ROOM_CHOICE
@@ -191,7 +191,7 @@ def join_room(message):
     user = User.query.filter_by(id=message.chat.id).first()
     room = Room.query.filter_by(identifier=identifier).first()
 
-    if room is not None and user.state == BotSate.ROOM_CHOICE:
+    if room and user.state == BotSate.ROOM_CHOICE:
         user.participant = room
         user.state = BotSate.IN_ROOM_USER
         db.session.commit()
@@ -219,7 +219,7 @@ def exit_room(message):
     user = User.query.filter_by(id=message.chat.id).first()
     room = Room.query.filter_by(identifier=identifier).first()
 
-    if room is not None and (user.state == BotSate.IN_ROOM_USER or user.state == BotSate.IN_ROOM_USER_READY):
+    if room and user.state in [BotSate.IN_ROOM_USER, BotSate.IN_ROOM_USER_READY]:
         user.participant = None
         user.state = BotSate.ROOM_CHOICE
         db.session.query(User).filter_by(id=user.id).update({"ready": False})
@@ -241,14 +241,14 @@ def exit_room(message):
 
 @telegram_bot.message_handler(commands=['notify'])
 def notify_room_participants(message):
-    if message.text == '/notify':
-        return
     user = User.query.filter_by(id=message.from_user.id).first()
-    if user.state == BotSate.IN_ROOM_CREATOR or user.state == BotSate.IN_ROOM_USER \
-            or user.state == BotSate.IN_ROOM_USER_READY:  # отправлять уведомления тем кто в комнате
+    # отправлять уведомления тем кто в комнате
+    if user.state in [BotSate.IN_ROOM_CREATOR, BotSate.IN_ROOM_USER, BotSate.IN_ROOM_USER_READY]:
+        if message.text == '/notify':
+            telegram_bot.send_message(user.id, proper_usage_of_notify_text, parse_mode='Markdown')
+            return
         telegram_bot.delete_message(message.chat.id, message.message_id)  # удалить сообщение со слэшем
-        room_users = user.participant.users
-        for room_user in room_users:
+        for room_user in user.participant.users:
             telegram_bot.send_message(chat_id=room_user.id,
                                       text='💬 {}: {}'.format(concatenate_name(user), message.text[8:]),
                                       disable_notification=True)
@@ -260,7 +260,7 @@ def notify_room_participants(message):
 @telegram_bot.message_handler(func=lambda message: True)
 def check_state(message):
     user = User.query.filter_by(id=message.from_user.id).first()
-    if user is None:
+    if not user:
         auth_user(message)
         return
 
@@ -343,8 +343,8 @@ def validate_present(query):
         db.session.commit()
         telegram_bot.delete_message(chat_id=query.message.chat.id,
                                     message_id=query.message.message_id)
-        #telegram_bot.send_message(chat_id=query.message.chat.id, text='Пока что думаем над реализацией')
-        #telegram_bot.send_sticker(chat_id=query.message.chat.id,
+        # telegram_bot.send_message(chat_id=query.message.chat.id, text='Пока что думаем над реализацией')
+        # telegram_bot.send_sticker(chat_id=query.message.chat.id,
         #                          data='CAACAgIAAxkBAAIHP1-exwjIqmwebjY-1nACsJOqWG4gAAIaAANaDDcVO0MG9OddsLIeBA')
         request_room_invitation(query.message.chat.id)
     else:
@@ -362,7 +362,7 @@ def handle_room_joining(query):
     if user.state < BotSate.ROOM_CHOICE:  # ничего не делать если не в меню выбора кнопок или не в комнате
         return
     if choice:
-        if user.room is None:
+        if not user.room:
             room = Room(owner_id=user.id)
             user.participant = room
             user.state = BotSate.IN_ROOM_CREATOR
@@ -382,7 +382,7 @@ def handle_room_joining(query):
                 telegram_bot.send_message(text=already_in_room_message2.format(user.participant.identifier),
                                           chat_id=query.message.chat.id, disable_notification=True)
     else:
-        if user.room is None:
+        if not user.room:
             telegram_bot.send_message(text=room_exists_message,
                                       chat_id=query.message.chat.id,
                                       parse_mode='Markdown', disable_notification=True)
@@ -418,10 +418,10 @@ def handle_room_ready(query):
 
 # возвращает кол-во готовых пользователей в комнате
 # и отсылает уведомления тем, кто не готов
-def check_ready(room_users, room_owner):
+def check_ready(room_owner):
     ready_users_count = 0
     try:
-        for u in room_users:
+        for u in room_owner.participant.users:
             if u.ready:
                 ready_users_count += 1
             else:
@@ -451,9 +451,9 @@ def get_room_users_count(room_owner):
 # создать полную текстовую строку пользователя
 def concatenate_name(user):
     full = user.first_name
-    if user.last_name is not None:
+    if user.last_name:
         full += ' ' + user.last_name
-    if user.username is not None:
+    if user.username:
         full += ' (@' + user.username + ')'
     return full
 
@@ -473,9 +473,11 @@ def assign_santa(user, santa):
 @telegram_bot.callback_query_handler(lambda query: json.loads(query.data).get('strt') is not None)
 def handle_room_owner_start(query):
     room_owner = User.query.get(query.message.chat.id)  # создатель комнаты
+    if room_owner.state != BotSate.IN_ROOM_CREATOR:
+        return
     room_users = room_owner.participant.users  # AppenderBaseQuery все участники комнаты
     room_users_count = get_room_users_count(room_owner)  # всего участников комнаты
-    room_users_ready_count = check_ready(room_users, room_owner)  # кол-во готовых пользователей
+    room_users_ready_count = check_ready(room_owner)  # кол-во готовых пользователей
 
     # если в комнате только создатель или не все пользователи готовы
     # отменить распределение тайных сант до тех пор пока все не будут готовы
